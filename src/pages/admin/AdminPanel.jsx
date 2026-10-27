@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import api, { getResolutionMonitoring, submitAdminReview } from '../../services/api';
+import api, { getResolutionMonitoring, submitAdminReview, deleteGrievance } from '../../services/api';
 import DashboardLayout from '../../components/layout/DashboardLayout';
 import GrievanceTable from '../../components/grievance/GrievanceTable';
 import StatusBadge from '../../components/common/StatusBadge';
@@ -14,6 +14,7 @@ import {
   Clock,
   CheckCircle,
   AlertTriangle,
+  AlertCircle,
   Flame,
   Search,
   Filter,
@@ -32,7 +33,8 @@ import {
   Eye,
   ExternalLink,
   Check,
-  FileText
+  FileText,
+  Trash2
 } from 'lucide-react';
 import { GRIEVANCE_CATEGORIES, GRIEVANCE_PRIORITIES } from '../../utils/constants';
 
@@ -68,6 +70,11 @@ export default function AdminPanel() {
   const [adminNotesInput, setAdminNotesInput] = useState('');
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
   const [actionSuccessMsg, setActionSuccessMsg] = useState('');
+
+  // Delete Grievance Modal state
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
 
   const fetchComplaints = async () => {
     try {
@@ -143,6 +150,29 @@ export default function AdminPanel() {
       alert(err.response?.data?.message || 'Failed to submit review decision');
     } finally {
       setReviewSubmitting(false);
+    }
+  };
+
+  const handleInitiateDelete = (complaint) => {
+    setDeleteTarget(complaint);
+    setDeleteError('');
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+    try {
+      setDeleting(true);
+      setDeleteError('');
+      const targetId = deleteTarget.grievanceId || deleteTarget._id;
+      const res = await deleteGrievance(targetId);
+      setActionSuccessMsg(res.data?.message || `Grievance ${targetId} permanently deleted.`);
+      setDeleteTarget(null);
+      await Promise.all([fetchComplaints(), fetchResolutionMonitoring()]);
+      setTimeout(() => setActionSuccessMsg(''), 5000);
+    } catch (err) {
+      setDeleteError(err.response?.data?.message || 'Failed to delete grievance');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -485,6 +515,7 @@ export default function AdminPanel() {
                   showDepartment={true}
                   showOfficer={true}
                   showConfidence={true}
+                  onDelete={handleInitiateDelete}
                 />
               )}
             </div>
@@ -862,6 +893,15 @@ export default function AdminPanel() {
                                 >
                                   <ExternalLink className="h-4 w-4" />
                                 </Link>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleInitiateDelete(item)}
+                                  className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                                  title="Permanently Delete Grievance"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
                               </div>
                             </td>
                           </tr>
@@ -991,6 +1031,89 @@ export default function AdminPanel() {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* Delete Grievance Confirmation Modal */}
+        {deleteTarget && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+            <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+              <div className="flex items-start justify-between border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-xl bg-rose-100 text-rose-600 shrink-0">
+                    <Trash2 className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900">
+                      Permanently Delete Grievance
+                    </h3>
+                    <p className="text-xs font-mono font-semibold text-rose-700 mt-0.5">
+                      {deleteTarget.grievanceId || `GRV-${String(deleteTarget._id).slice(-6).toUpperCase()}`}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDeleteTarget(null);
+                    setDeleteError('');
+                  }}
+                  disabled={deleting}
+                  className="text-slate-400 hover:text-slate-600 text-sm font-bold cursor-pointer disabled:opacity-50"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {deleteError && (
+                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs font-medium text-rose-700 flex items-center gap-2">
+                  <AlertCircle className="h-4 w-4 text-rose-600 shrink-0" />
+                  <span>{deleteError}</span>
+                </div>
+              )}
+
+              <div className="space-y-3 text-xs text-slate-600 leading-relaxed">
+                <p className="font-semibold text-slate-800 text-sm">
+                  Are you sure you want to permanently delete this grievance? This action cannot be undone.
+                </p>
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80 space-y-1 text-[11px]">
+                  <p className="text-slate-700 truncate">
+                    <strong className="text-slate-900">Title:</strong> {deleteTarget.title}
+                  </p>
+                  <p className="text-slate-500">
+                    <strong>Citizen:</strong> {deleteTarget.userId?.name || 'Citizen'} • <strong>Location:</strong> {deleteTarget.location || 'N/A'}
+                  </p>
+                </div>
+                <p className="text-slate-500">
+                  This will completely remove the grievance record, all associated AI analysis results, resolution recommendations, timeline history, and any unshared evidence files from storage.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={deleting}
+                  onClick={() => {
+                    setDeleteTarget(null);
+                    setDeleteError('');
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  variant="danger"
+                  size="sm"
+                  icon={Trash2}
+                  loading={deleting}
+                  onClick={handleConfirmDelete}
+                >
+                  Delete Grievance
+                </Button>
+              </div>
+            </div>
           </div>
         )}
       </div>

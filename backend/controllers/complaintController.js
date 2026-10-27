@@ -2037,3 +2037,141 @@ exports.getResolutionMonitoring = async (req, res) => {
   }
 };
 
+/**
+ * @desc    Permanently delete a grievance and clean up related records and attachments
+ * @route   DELETE /api/complaints/:id or DELETE /api/grievances/:id
+ * @access  Private (Admin only)
+ */
+exports.deleteComplaint = async (req, res) => {
+  try {
+    // 1. Strict Role Authorization: Only Admin can delete grievances
+    if (!req.user || req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Forbidden: Only administrators have permission to delete grievances'
+      });
+    }
+
+    const { id } = req.params;
+    if (!id) {
+      return res.status(400).json({ success: false, message: 'Grievance ID is required' });
+    }
+
+    // 2. Locate Complaint (in MongoDB Atlas if connected, or memoryStore fallback)
+    if (mongoose.connection && mongoose.connection.readyState === 1) {
+      let query = { $or: [{ grievanceId: id }] };
+      if (mongoose.Types.ObjectId.isValid(id)) {
+        query.$or.push({ _id: id });
+      }
+
+      const complaint = await Complaint.findOne(query);
+      if (!complaint) {
+        return res.status(404).json({
+          success: false,
+          message: 'Grievance not found'
+        });
+      }
+
+      const complaintId = complaint._id;
+      const formattedGrievanceId = complaint.grievanceId || `GRV-2026-${String(complaintId).slice(-6).toUpperCase()}`;
+
+      // 3. Collect associated evidence files
+      const filesToCheck = new Set();
+      if (complaint.imageUrl) {
+        const cleanName = path.basename(complaint.imageUrl.replace('/uploads/', ''));
+        if (cleanName) filesToCheck.add(cleanName);
+      }
+      if (Array.isArray(complaint.attachments)) {
+        for (const att of complaint.attachments) {
+          const fn = att.filename || (att.url ? path.basename(att.url.replace('/uploads/', '')) : null);
+          if (fn) filesToCheck.add(fn);
+        }
+      }
+
+      // 4. Delete unshared evidence files from GridFS & persistent storage
+      for (const filename of filesToCheck) {
+        try {
+          const otherRef = await Complaint.findOne({
+            _id: { $ne: complaintId },
+            $or: [
+              { imageUrl: new RegExp(filename, 'i') },
+              { 'attachments.filename': filename },
+              { 'attachments.url': new RegExp(filename, 'i') }
+            ]
+          });
+
+          if (!otherRef) {
+            await storageService.deleteEvidenceFile(filename);
+          } else {
+            console.log(`[Evidence Storage] Retaining shared file "${filename}" referenced by other complaint (${otherRef._id})`);
+          }
+        } catch (fileErr) {
+          console.warn(`[Evidence Storage Warning] File cleanup error for "${filename}":`, fileErr.message);
+        }
+      }
+
+      // 5. Cascade delete associated records
+      await Promise.all([
+        AIAnalysis.deleteMany({ grievanceId: complaintId }),
+        GrievanceHistory.deleteMany({ grievanceId: complaintId }),
+        ResolutionRecommendation.deleteMany({ complaintId }),
+        Complaint.updateMany({ isDuplicateOf: complaintId }, { $set: { isDuplicateOf: null } }),
+        Complaint.updateMany(
+          { confirmedDuplicateOf: complaintId },
+          { $set: { confirmedDuplicateOf: null, duplicateReviewStatus: 'PENDING' } }
+        )
+      ]);
+
+      // 6. Delete the primary complaint record
+      await Complaint.deleteOne({ _id: complaintId });
+
+      console.log(`[Admin Delete] Grievance ${formattedGrievanceId} (${complaintId}) permanently deleted by Admin ${req.user.name || req.user.email}`);
+
+      return res.status(200).json({
+        success: true,
+        message: `Grievance ${formattedGrievanceId} permanently deleted successfully`,
+        deletedId: complaintId,
+        grievanceId: formattedGrievanceId
+      });
+    } else {
+      // In-Memory Fallback Store
+      const index = memoryStore.complaints.findIndex(
+        c => c.grievanceId === id || c._id.toString() === id.toString()
+      );
+
+      if (index === -1) {
+        return res.status(404).json({
+          success: false,
+          message: 'Grievance not found'
+        });
+      }
+
+      const deletedComplaint = memoryStore.complaints.splice(index, 1)[0];
+      const targetId = deletedComplaint._id.toString();
+
+      memoryStore.aiAnalyses = memoryStore.aiAnalyses.filter(
+        a => (a.grievanceId?.toString() || '') !== targetId
+      );
+      memoryStore.grievanceHistories = memoryStore.grievanceHistories.filter(
+        h => (h.grievanceId?.toString() || '') !== targetId
+      );
+      memoryStore.resolutionRecommendations = memoryStore.resolutionRecommendations.filter(
+        r => (r.complaintId?.toString() || '') !== targetId
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: `Grievance ${deletedComplaint.grievanceId || id} permanently deleted successfully`,
+        deletedId: deletedComplaint._id,
+        grievanceId: deletedComplaint.grievanceId
+      });
+    }
+  } catch (error) {
+    console.error('deleteComplaint error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to delete grievance due to server error'
+    });
+  }
+};
+

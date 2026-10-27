@@ -271,12 +271,54 @@ async function getEvidenceBuffer(targetFilename) {
   }
 }
 
+/**
+ * Safely deletes an evidence file from persistent storage (MongoDB Atlas GridFS and local disk).
+ * 
+ * @param {string} targetFilename - File name to remove
+ * @returns {Promise<boolean>}
+ */
+async function deleteEvidenceFile(targetFilename) {
+  if (!targetFilename) return false;
+  const safeFilename = path.basename(targetFilename);
+
+  // 1. Delete from GridFS bucket
+  const bucket = getGridFSBucket();
+  if (bucket) {
+    try {
+      const files = await bucket.find({ filename: safeFilename }).toArray();
+      for (const f of files) {
+        await bucket.delete(f._id);
+        console.log(`[Evidence Storage] Deleted GridFS file: "${safeFilename}" (id: ${f._id})`);
+      }
+    } catch (gridErr) {
+      console.warn(`[Evidence Storage Warning] GridFS delete error for "${safeFilename}":`, gridErr.message);
+    }
+  }
+
+  // 2. Delete from persistent disk
+  const uploadsDir = getUploadsDir();
+  const diskPath = path.resolve(uploadsDir, safeFilename);
+
+  // Path traversal guard
+  if (diskPath.startsWith(uploadsDir + path.sep) && fs.existsSync(diskPath)) {
+    try {
+      fs.unlinkSync(diskPath);
+      console.log(`[Evidence Storage] Deleted disk file: "${diskPath}"`);
+    } catch (diskErr) {
+      console.warn(`[Evidence Storage Warning] Disk unlink error for "${safeFilename}":`, diskErr.message);
+    }
+  }
+
+  return true;
+}
+
 module.exports = {
   getUploadsDir,
   getGridFSBucket,
   saveEvidenceFile,
   getEvidenceStream,
   getEvidenceBuffer,
+  deleteEvidenceFile,
   getDiagnostics,
   getMimeType
 };

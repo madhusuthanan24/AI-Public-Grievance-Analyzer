@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
-import api, { getAssetUrl, fetchEvidenceBlob } from '../../services/api';
+import { useParams, Link, useNavigate } from 'react-router-dom';
+import api, { getAssetUrl, fetchEvidenceBlob, deleteGrievance } from '../../services/api';
 import DashboardLayout from '../../components/layout/DashboardLayout';
 import StatusBadge from '../../components/common/StatusBadge';
 import PriorityBadge from '../../components/grievance/PriorityBadge';
@@ -29,21 +29,29 @@ import {
   History,
   UserCheck,
   AlertTriangle,
+  AlertCircle,
   Copy,
   Layers,
   XCircle,
-  GitMerge
+  GitMerge,
+  Trash2
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 export default function ComplaintDetail() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const { user } = useAuth();
   const [complaint, setComplaint] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [reviewing, setReviewing] = useState(false);
   const [reviewSuccess, setReviewSuccess] = useState('');
+
+  // Delete Grievance Modal state (Admin only)
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
 
   // Evidence viewing & inline preview state
   const [openingFile, setOpeningFile] = useState('');
@@ -263,6 +271,25 @@ export default function ComplaintDetail() {
     }
   };
 
+  const handleConfirmDelete = async () => {
+    if (!complaint) return;
+    try {
+      setDeleting(true);
+      setDeleteError('');
+      const targetId = complaint.grievanceId || complaint._id;
+      await deleteGrievance(targetId);
+      setShowDeleteModal(false);
+      navigate(user?.role === 'admin' ? '/admin/grievances' : '/citizen/grievances', {
+        replace: true,
+        state: { message: `Grievance ${targetId} permanently deleted.` }
+      });
+    } catch (err) {
+      setDeleteError(err.response?.data?.message || 'Failed to delete grievance');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const backLink =
     user?.role === 'admin'
       ? '/admin/grievances'
@@ -283,9 +310,9 @@ export default function ComplaintDetail() {
             <span>Back to List</span>
           </Link>
 
-          {/* Module 6.13 - 6.14 Admin Review Action */}
+          {/* Module 6.13 - 6.14 Admin Actions (Review & Delete) */}
           {user?.role === 'admin' && complaint && (
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
               {complaint.isReviewed ? (
                 <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-semibold">
                   <CheckCircle2 className="h-4 w-4 text-emerald-600" />
@@ -305,6 +332,18 @@ export default function ComplaintDetail() {
                   Mark as Reviewed
                 </Button>
               )}
+
+              <Button
+                size="sm"
+                variant="danger"
+                icon={Trash2}
+                onClick={() => {
+                  setShowDeleteModal(true);
+                  setDeleteError('');
+                }}
+              >
+                Delete Grievance
+              </Button>
             </div>
           )}
         </div>
@@ -1124,6 +1163,89 @@ export default function ComplaintDetail() {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* Delete Grievance Confirmation Modal */}
+        {showDeleteModal && complaint && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+            <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+              <div className="flex items-start justify-between border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-xl bg-rose-100 text-rose-600 shrink-0">
+                    <Trash2 className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900">
+                      Permanently Delete Grievance
+                    </h3>
+                    <p className="text-xs font-mono font-semibold text-rose-700 mt-0.5">
+                      {complaint.grievanceId || `GRV-${String(complaint._id).slice(-6).toUpperCase()}`}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowDeleteModal(false);
+                    setDeleteError('');
+                  }}
+                  disabled={deleting}
+                  className="text-slate-400 hover:text-slate-600 text-sm font-bold cursor-pointer disabled:opacity-50"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {deleteError && (
+                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs font-medium text-rose-700 flex items-center gap-2">
+                  <AlertCircle className="h-4 w-4 text-rose-600 shrink-0" />
+                  <span>{deleteError}</span>
+                </div>
+              )}
+
+              <div className="space-y-3 text-xs text-slate-600 leading-relaxed">
+                <p className="font-semibold text-slate-800 text-sm">
+                  Are you sure you want to permanently delete this grievance? This action cannot be undone.
+                </p>
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80 space-y-1 text-[11px]">
+                  <p className="text-slate-700 truncate">
+                    <strong className="text-slate-900">Title:</strong> {complaint.title}
+                  </p>
+                  <p className="text-slate-500">
+                    <strong>Citizen:</strong> {complaint.userId?.name || 'Citizen'} • <strong>Location:</strong> {complaint.location || 'N/A'}
+                  </p>
+                </div>
+                <p className="text-slate-500">
+                  This will completely remove the grievance record, all associated AI analysis results, resolution recommendations, timeline history, and any unshared evidence files from storage.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={deleting}
+                  onClick={() => {
+                    setShowDeleteModal(false);
+                    setDeleteError('');
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  variant="danger"
+                  size="sm"
+                  icon={Trash2}
+                  loading={deleting}
+                  onClick={handleConfirmDelete}
+                >
+                  Delete Grievance
+                </Button>
+              </div>
+            </div>
           </div>
         )}
       </div>

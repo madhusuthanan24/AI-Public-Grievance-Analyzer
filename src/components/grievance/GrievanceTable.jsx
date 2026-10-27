@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import StatusBadge from '../common/StatusBadge';
 import PriorityBadge from './PriorityBadge';
-import { Eye, MapPin, Building2, CheckCircle2, UserCheck } from 'lucide-react';
+import { Eye, MapPin, Building2, CheckCircle2, UserCheck, Trash2 } from 'lucide-react';
 
 export default function GrievanceTable({
   grievances = [],
@@ -11,7 +11,8 @@ export default function GrievanceTable({
   showDepartment = true,
   showOfficer = false,
   showConfidence = true,
-  onAction
+  onAction,
+  onDelete
 }) {
   const { user } = useAuth();
   const defaultBasePath =
@@ -127,13 +128,26 @@ export default function GrievanceTable({
                 </td>
 
                 <td className="py-3.5 px-4 text-right whitespace-nowrap">
-                  <Link
-                    to={`${effectiveBasePath}/${item._id}`}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg text-violet-700 bg-violet-50 hover:bg-violet-100 transition-colors"
-                  >
-                    <Eye className="h-3.5 w-3.5" />
-                    View
-                  </Link>
+                  <div className="flex items-center justify-end gap-2">
+                    <Link
+                      to={`${effectiveBasePath}/${item._id}`}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg text-violet-700 bg-violet-50 hover:bg-violet-100 transition-colors"
+                    >
+                      <Eye className="h-3.5 w-3.5" />
+                      View
+                    </Link>
+                    {user?.role === 'admin' && onDelete && (
+                      <button
+                        type="button"
+                        onClick={() => onDelete(item)}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition-colors cursor-pointer"
+                        title="Permanently Delete Grievance"
+                      >
+                        <Trash2 className="h-3.5 w-3.5 text-rose-600" />
+                        <span>Delete</span>
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
             );

@@ -18,7 +18,8 @@ const {
   getAISolution,
   reviewAISolutionOfficer,
   reviewAISolutionAdmin,
-  getResolutionMonitoring
+  getResolutionMonitoring,
+  deleteComplaint
 } = require('../controllers/complaintController');
 const Complaint = require('../models/Complaint');
 const GrievanceHistory = require('../models/GrievanceHistory');
@@ -99,5 +100,8 @@ router.put('/:id/ai-solution/admin-review', roleCheck(['admin']), reviewAISoluti
 
 // Detail route (by _id or grievanceId)
 router.get('/:id', roleCheck(['citizen', 'officer', 'admin']), getComplaintById);
+
+// Admin Grievance Deletion (Admin only)
+router.delete('/:id', roleCheck(['admin']), deleteComplaint);
 
 module.exports = router;

@@ -155,4 +155,11 @@ export const getResolutionMonitoring = (params) => {
   return api.get('/complaints/admin/resolution-monitoring', { params });
 };
 
+/**
+ * Delete grievance (Admin only)
+ */
+export const deleteGrievance = (complaintId) => {
+  return api.delete(`/complaints/${complaintId}`);
+};
+
 export default api;
