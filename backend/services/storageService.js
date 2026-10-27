@@ -244,11 +244,39 @@ function getDiagnostics() {
   };
 }
 
+/**
+ * Retrieves an evidence file as a Buffer (useful for multimodal AI analysis)
+ * @param {string} targetFilename
+ * @returns {Promise<{ buffer: Buffer, mimetype: string, originalName: string, size: number } | null>}
+ */
+async function getEvidenceBuffer(targetFilename) {
+  const result = await getEvidenceStream(targetFilename);
+  if (!result || !result.stream) return null;
+
+  try {
+    const chunks = [];
+    for await (const chunk of result.stream) {
+      chunks.push(chunk);
+    }
+    const buffer = Buffer.concat(chunks);
+    return {
+      buffer,
+      mimetype: result.mimetype,
+      originalName: result.originalName,
+      size: buffer.length
+    };
+  } catch (err) {
+    console.warn(`[Evidence Storage Warning] Buffer read error for "${targetFilename}":`, err.message);
+    return null;
+  }
+}
+
 module.exports = {
   getUploadsDir,
   getGridFSBucket,
   saveEvidenceFile,
   getEvidenceStream,
+  getEvidenceBuffer,
   getDiagnostics,
   getMimeType
 };

@@ -6,6 +6,7 @@ import StatusBadge from '../../components/common/StatusBadge';
 import PriorityBadge from '../../components/grievance/PriorityBadge';
 import StatusTimeline from '../../components/grievance/StatusTimeline';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
+import AIResolutionAssistant from '../../components/grievance/AIResolutionAssistant';
 import Button from '../../components/common/Button';
 import {
   ArrowLeft,
@@ -915,6 +916,15 @@ export default function ComplaintDetail() {
                   </div>
                 </div>
               </div>
+            )}
+
+            {/* AI-Powered Complaint Resolution Assistant (Admin Oversight Only) */}
+            {user?.role === 'admin' && (
+              <AIResolutionAssistant
+                complaint={complaint}
+                role="admin"
+                onStatusUpdate={fetchComplaint}
+              />
             )}
 
             {/* Description & Attachments (Module 6.7 & 6.12) */}

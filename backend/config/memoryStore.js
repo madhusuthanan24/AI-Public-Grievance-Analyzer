@@ -324,6 +324,8 @@ const aiAnalyses = [
   }
 ];
 
+const resolutionRecommendations = [];
+
 let idCounter = 100;
 const generateId = () => `mem_${Date.now()}_${++idCounter}`;
 const generateGrievanceId = () => {
@@ -338,6 +340,7 @@ module.exports = {
   complaints,
   grievanceHistories,
   aiAnalyses,
+  resolutionRecommendations,
   generateId,
   generateGrievanceId
 };

@@ -6,8 +6,10 @@ const Department = require('../models/Department');
 const User = require('../models/User');
 const GrievanceHistory = require('../models/GrievanceHistory');
 const AIAnalysis = require('../models/AIAnalysis');
+const ResolutionRecommendation = require('../models/ResolutionRecommendation');
 const aiService = require('../services/aiService');
 const duplicateDetectionService = require('../services/duplicateDetectionService');
+const resolutionAssistantService = require('../services/resolutionAssistantService');
 const storageService = require('../services/storageService');
 const memoryStore = require('../config/memoryStore');
 
@@ -458,10 +460,19 @@ exports.getComplaintById = async (req, res) => {
       complaintObj.history = history;
       complaintObj.aiAnalysis = aiAnalysis;
 
-      // Sanitize internal duplicate review details from citizen view (Module 9.13)
+      // Sanitize internal duplicate review details and AI resolution assistant data from citizen view
       if (req.user.role === 'citizen') {
         delete complaintObj.duplicateCandidates;
         delete complaintObj.duplicateReviewNote;
+        delete complaintObj.latestRecommendation;
+        delete complaintObj.hasAIResolution;
+        delete complaintObj.resolutionReviewStatus;
+      } else {
+        const latestRec = await ResolutionRecommendation.findOne({ complaintId: complaint._id })
+          .populate('reviewingOfficerId', 'name email role department')
+          .populate('reviewedByAdminId', 'name email role')
+          .sort({ version: -1 });
+        complaintObj.latestRecommendation = latestRec || null;
       }
 
       return res.json(complaintObj);
@@ -504,11 +515,18 @@ exports.getComplaintById = async (req, res) => {
       a => a.grievanceId.toString() === populated._id.toString()
     ) || null;
 
-    // Sanitize or enrich duplicate candidate data
+    // Sanitize or enrich duplicate candidate data and resolution recommendations
     if (req.user.role === 'citizen') {
       delete populated.duplicateCandidates;
       delete populated.duplicateReviewNote;
+      delete populated.latestRecommendation;
+      delete populated.hasAIResolution;
+      delete populated.resolutionReviewStatus;
     } else {
+      const rec = (memoryStore.resolutionRecommendations || [])
+        .filter(r => r.complaintId.toString() === populated._id.toString())
+        .sort((a, b) => b.version - a.version)[0];
+      populated.latestRecommendation = rec || null;
       if (populated.duplicateCandidates) {
         populated.duplicateCandidates = populated.duplicateCandidates.map(cand => {
           const fullCand = memoryStore.complaints.find(comp => comp._id.toString() === (cand.complaintId?._id || cand.complaintId || '').toString());
@@ -1860,6 +1878,162 @@ exports.getComplaintEvidence = async (req, res) => {
   } catch (error) {
     console.error('getComplaintEvidence error:', error);
     return res.status(500).json({ message: 'Server error retrieving evidence' });
+  }
+};
+
+/**
+ * Helper to verify officer access authorization to a grievance
+ */
+const verifyOfficerAccess = async (complaintParam, user) => {
+  if (user.role === 'admin') return true;
+  if (user.role !== 'officer') return false;
+
+  let complaint;
+  if (mongoose.connection && mongoose.connection.readyState === 1) {
+    let query = { $or: [{ grievanceId: complaintParam }] };
+    if (mongoose.Types.ObjectId.isValid(complaintParam)) {
+      query.$or.push({ _id: complaintParam });
+    }
+    complaint = await Complaint.findOne(query);
+  } else {
+    complaint = memoryStore.complaints.find(c =>
+      c._id.toString() === complaintParam.toString() || c.grievanceId === complaintParam
+    );
+  }
+
+  if (!complaint) return false;
+
+  const officerId = user._id.toString();
+  const officerDept = user.department ? (user.department._id || user.department).toString() : '';
+  const complaintDept = complaint.assignedDepartment ? (complaint.assignedDepartment._id || complaint.assignedDepartment).toString() : '';
+  const assignedOfficer = complaint.assignedOfficerId ? (complaint.assignedOfficerId._id || complaint.assignedOfficerId).toString() : null;
+
+  if (assignedOfficer) {
+    return assignedOfficer === officerId;
+  }
+  return complaintDept && officerDept === complaintDept;
+};
+
+/**
+ * @desc    Generate AI resolution recommendation
+ * @route   POST /api/complaints/:id/ai-solution
+ * @access  Private (Officer, Admin)
+ */
+exports.generateAISolution = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (req.user.role === 'citizen') {
+      return res.status(403).json({ message: 'Forbidden: Citizens are restricted from accessing internal resolution assistant controls.' });
+    }
+
+    if (req.user.role === 'officer') {
+      const allowed = await verifyOfficerAccess(id, req.user);
+      if (!allowed) {
+        return res.status(403).json({ message: 'Forbidden: Access restricted to assigned department complaints' });
+      }
+    }
+
+    const recommendation = await resolutionAssistantService.generateResolutionRecommendation(id, req.user);
+    return res.status(201).json(recommendation);
+  } catch (error) {
+    console.error('generateAISolution error:', error);
+    return res.status(500).json({ message: error.message || 'Failed to generate AI resolution recommendation' });
+  }
+};
+
+/**
+ * @desc    Get AI resolution recommendations (latest + version history)
+ * @route   GET /api/complaints/:id/ai-solution
+ * @access  Private (Officer, Admin)
+ */
+exports.getAISolution = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (req.user.role === 'citizen') {
+      return res.status(403).json({ message: 'Forbidden: Citizens are restricted from accessing internal resolution assistant controls.' });
+    }
+
+    if (req.user.role === 'officer') {
+      const allowed = await verifyOfficerAccess(id, req.user);
+      if (!allowed) {
+        return res.status(403).json({ message: 'Forbidden: Access restricted to assigned department complaints' });
+      }
+    }
+
+    const data = await resolutionAssistantService.getRecommendationsForComplaint(id);
+    if (!data) {
+      return res.status(404).json({ message: 'Grievance not found' });
+    }
+    return res.json(data);
+  } catch (error) {
+    console.error('getAISolution error:', error);
+    return res.status(500).json({ message: 'Server error retrieving recommendations' });
+  }
+};
+
+/**
+ * @desc    Record officer review and action on AI resolution plan
+ * @route   PUT /api/complaints/:id/ai-solution/officer-review
+ * @access  Private (Officer, Admin)
+ */
+exports.reviewAISolutionOfficer = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (req.user.role === 'citizen') {
+      return res.status(403).json({ message: 'Forbidden: Citizens are restricted from review controls' });
+    }
+
+    if (req.user.role === 'officer') {
+      const allowed = await verifyOfficerAccess(id, req.user);
+      if (!allowed) {
+        return res.status(403).json({ message: 'Forbidden: Access restricted to assigned complaints' });
+      }
+    }
+
+    const updated = await resolutionAssistantService.recordOfficerReview(id, req.body, req.user);
+    return res.json(updated);
+  } catch (error) {
+    console.error('reviewAISolutionOfficer error:', error);
+    return res.status(400).json({ message: error.message || 'Failed to record officer review' });
+  }
+};
+
+/**
+ * @desc    Record admin oversight review and approval/rejection
+ * @route   PUT /api/complaints/:id/ai-solution/admin-review
+ * @access  Private (Admin only)
+ */
+exports.reviewAISolutionAdmin = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Forbidden: Admin authorization required' });
+    }
+
+    const updated = await resolutionAssistantService.recordAdminReview(id, req.body, req.user);
+    return res.json(updated);
+  } catch (error) {
+    console.error('reviewAISolutionAdmin error:', error);
+    return res.status(400).json({ message: error.message || 'Failed to record admin review' });
+  }
+};
+
+/**
+ * @desc    Get aggregated resolution monitoring oversight metrics for Administrators
+ * @route   GET /api/complaints/admin/resolution-monitoring
+ * @access  Private (Admin only)
+ */
+exports.getResolutionMonitoring = async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Forbidden: Admin oversight access required' });
+    }
+
+    const data = await resolutionAssistantService.getResolutionMonitoringData(req.query);
+    return res.json(data);
+  } catch (error) {
+    console.error('getResolutionMonitoring error:', error);
+    return res.status(500).json({ message: 'Server error retrieving resolution monitoring data' });
   }
 };
 

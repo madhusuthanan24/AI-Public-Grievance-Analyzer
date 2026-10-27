@@ -132,4 +132,27 @@ export const getAssetUrl = (url) => {
   return `${backendOrigin}${cleanPath}`;
 };
 
+/**
+ * AI Resolution Assistant API Methods
+ */
+export const getAISolution = (complaintId) => {
+  return api.get(`/complaints/${complaintId}/ai-solution`);
+};
+
+export const generateAISolution = (complaintId) => {
+  return api.post(`/complaints/${complaintId}/ai-solution`);
+};
+
+export const submitOfficerReview = (complaintId, data) => {
+  return api.put(`/complaints/${complaintId}/ai-solution/officer-review`, data);
+};
+
+export const submitAdminReview = (complaintId, data) => {
+  return api.put(`/complaints/${complaintId}/ai-solution/admin-review`, data);
+};
+
+export const getResolutionMonitoring = (params) => {
+  return api.get('/complaints/admin/resolution-monitoring', { params });
+};
+
 export default api;

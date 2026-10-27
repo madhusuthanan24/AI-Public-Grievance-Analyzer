@@ -13,7 +13,12 @@ const {
   getAllComplaints,
   markComplaintAsReviewed,
   getComplaintDuplicates,
-  reviewDuplicateComplaint
+  reviewDuplicateComplaint,
+  generateAISolution,
+  getAISolution,
+  reviewAISolutionOfficer,
+  reviewAISolutionAdmin,
+  getResolutionMonitoring
 } = require('../controllers/complaintController');
 const Complaint = require('../models/Complaint');
 const GrievanceHistory = require('../models/GrievanceHistory');
@@ -82,6 +87,15 @@ router.put('/:id/duplicate-review', roleCheck(['admin']), reviewDuplicateComplai
 // Evidence retrieval routes (Module 5.22 - Secure authenticated attachment retrieval)
 router.get('/:id/evidence/:fileId', roleCheck(['citizen', 'officer', 'admin']), getComplaintEvidence);
 router.get('/:id/evidence', roleCheck(['citizen', 'officer', 'admin']), getComplaintEvidence);
+
+// Admin Resolution Monitoring & Oversight (Module: AI Resolution Assistant)
+router.get('/admin/resolution-monitoring', roleCheck(['admin']), getResolutionMonitoring);
+
+// AI Resolution Assistant routes (Module: AI Resolution Assistant)
+router.post('/:id/ai-solution', roleCheck(['officer', 'admin']), generateAISolution);
+router.get('/:id/ai-solution', roleCheck(['officer', 'admin']), getAISolution);
+router.put('/:id/ai-solution/officer-review', roleCheck(['officer', 'admin']), reviewAISolutionOfficer);
+router.put('/:id/ai-solution/admin-review', roleCheck(['admin']), reviewAISolutionAdmin);
 
 // Detail route (by _id or grievanceId)
 router.get('/:id', roleCheck(['citizen', 'officer', 'admin']), getComplaintById);

@@ -7,6 +7,7 @@ import StatusBadge from '../../components/common/StatusBadge';
 import PriorityBadge from '../../components/grievance/PriorityBadge';
 import StatusTimeline from '../../components/grievance/StatusTimeline';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
+import AIResolutionAssistant from '../../components/grievance/AIResolutionAssistant';
 import Button from '../../components/common/Button';
 import Input from '../../components/common/Input';
 import {
@@ -378,6 +379,13 @@ export default function ComplaintReview() {
                 </p>
               </div>
             </div>
+
+            {/* AI-Powered Complaint Resolution Assistant */}
+            <AIResolutionAssistant
+              complaint={complaint}
+              role={user?.role || 'officer'}
+              onStatusUpdate={fetchComplaint}
+            />
 
             {/* Module 8: Officer Processing & Resolution Panel */}
             <div className="bg-white rounded-2xl border border-slate-200/80 p-6 sm:p-8 shadow-xs space-y-6">

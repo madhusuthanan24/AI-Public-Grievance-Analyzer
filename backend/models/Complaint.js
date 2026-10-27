@@ -236,6 +236,21 @@ const ComplaintSchema = new mongoose.Schema({
     default: null,
     trim: true
   },
+  // Module: AI Resolution Assistant
+  hasAIResolution: {
+    type: Boolean,
+    default: false
+  },
+  latestRecommendationId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'ResolutionRecommendation',
+    default: null
+  },
+  resolutionReviewStatus: {
+    type: String,
+    enum: ['NONE', 'PENDING', 'ACCEPTED', 'REJECTED', 'MODIFIED', 'APPROVED', 'NEEDS_REVISION'],
+    default: 'NONE'
+  },
   remarks: [RemarkSchema]
 }, {
   timestamps: true
