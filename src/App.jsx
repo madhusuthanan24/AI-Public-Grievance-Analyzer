@@ -2,6 +2,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useParam
 import { AuthProvider, useAuth } from './context/AuthContext';
 
 // Public Pages
+import IndexPage from './pages/public/IndexPage';
 import LandingPage from './pages/public/LandingPage';
 import AboutPage from './pages/public/AboutPage';
 
@@ -80,7 +81,8 @@ function AppRoutes() {
   return (
     <Routes>
       {/* Public Pages */}
-      <Route path="/" element={<LandingPage />} />
+      <Route path="/" element={<IndexPage />} />
+      <Route path="/landing" element={<LandingPage />} />
       <Route path="/about" element={<AboutPage />} />
 
       {/* Auth Pages */}

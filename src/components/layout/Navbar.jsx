@@ -65,6 +65,12 @@ export default function Navbar({ onMenuToggle }) {
             {!user ? (
               <div className="flex items-center gap-2">
                 <Link
+                  to="/landing"
+                  className="hidden sm:inline-block px-3 py-2 text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors"
+                >
+                  Features
+                </Link>
+                <Link
                   to="/about"
                   className="px-3 py-2 text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors"
                 >
