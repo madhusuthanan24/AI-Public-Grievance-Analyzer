@@ -119,7 +119,14 @@ export default function SubmitComplaint() {
       setSubmittedData(res.data);
     } catch (err) {
       console.error('Submission error:', err);
-      setError(err.response?.data?.message || 'Failed to submit grievance. Please verify fields and try again.');
+      const serverMsg = err.response?.data?.message;
+      if (serverMsg) {
+        setError(serverMsg);
+      } else if (!err.response || err.message?.includes('Network Error') || err.code === 'ERR_NETWORK') {
+        setError('Unable to reach the server. Please check your network connection and retry.');
+      } else {
+        setError(err.message || 'Failed to submit grievance. Please verify fields and try again.');
+      }
     } finally {
       setLoading(false);
     }
@@ -170,10 +177,15 @@ export default function SubmitComplaint() {
                       </button>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <Link to={`/citizen/grievances/${submittedData.grievanceId || submittedData._id}`}>
                         <Button size="md" variant="primary" icon={ArrowRight}>
                           View Grievance
+                        </Button>
+                      </Link>
+                      <Link to="/citizen/grievances">
+                        <Button size="md" variant="secondary">
+                          My Grievances
                         </Button>
                       </Link>
                       <Button

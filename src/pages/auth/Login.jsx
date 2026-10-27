@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { LogIn, AlertCircle, ShieldCheck } from 'lucide-react';
 import Input from '../../components/common/Input';
@@ -14,6 +14,7 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -26,15 +27,29 @@ export default function Login() {
     try {
       setLoading(true);
       const user = await login(email, password);
+
+      const destination = location.state?.from?.pathname;
+      if (destination && !destination.startsWith('/login') && !destination.startsWith('/register')) {
+        navigate(destination, { replace: true });
+        return;
+      }
+
       if (user.role === 'admin') {
-        navigate('/admin/dashboard');
+        navigate('/admin/dashboard', { replace: true });
       } else if (user.role === 'officer') {
-        navigate('/officer/dashboard');
+        navigate('/officer/dashboard', { replace: true });
       } else {
-        navigate('/citizen/dashboard');
+        navigate('/citizen/dashboard', { replace: true });
       }
     } catch (err) {
-      setError(err.response?.data?.message || 'Invalid email or password.');
+      const serverMsg = err.response?.data?.message;
+      if (serverMsg) {
+        setError(serverMsg);
+      } else if (!err.response || err.message?.includes('Network Error') || err.code === 'ERR_NETWORK') {
+        setError('Unable to connect to the server. Please check your network connection or try again shortly.');
+      } else {
+        setError(err.message || 'Invalid email or password.');
+      }
     } finally {
       setLoading(false);
     }

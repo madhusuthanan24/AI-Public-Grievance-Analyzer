@@ -45,13 +45,20 @@ export default function Register() {
 
     try {
       setLoading(true);
-      await register(name, email, password);
+      await register(name, email, password, phone);
       setSuccess(true);
       setTimeout(() => {
-        navigate('/login');
+        navigate('/login', { replace: true });
       }, 1500);
     } catch (err) {
-      setError(err.response?.data?.message || 'Registration failed. Please try again.');
+      const serverMsg = err.response?.data?.message;
+      if (serverMsg) {
+        setError(serverMsg);
+      } else if (!err.response || err.message?.includes('Network Error') || err.code === 'ERR_NETWORK') {
+        setError('Unable to connect to the server. Please check your network connection or try again shortly.');
+      } else {
+        setError(err.message || 'Registration failed. Please try again.');
+      }
     } finally {
       setLoading(false);
     }

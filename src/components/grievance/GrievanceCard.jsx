@@ -1,9 +1,18 @@
 import { Link } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
 import StatusBadge from '../common/StatusBadge';
 import PriorityBadge from './PriorityBadge';
 import { MapPin, Calendar, Building2, ChevronRight } from 'lucide-react';
 
-export default function GrievanceCard({ grievance, basePath = '/complaints' }) {
+export default function GrievanceCard({ grievance, basePath }) {
+  const { user } = useAuth();
+  const defaultBasePath =
+    user?.role === 'admin'
+      ? '/admin/grievances'
+      : user?.role === 'officer'
+      ? '/officer/grievances'
+      : '/citizen/grievances';
+  const effectiveBasePath = basePath || defaultBasePath;
   const deptName = grievance.assignedDepartment?.name || grievance.department || 'Awaiting Routing';
 
   return (
@@ -20,7 +29,7 @@ export default function GrievanceCard({ grievance, basePath = '/complaints' }) {
         </div>
 
         <Link
-          to={`${basePath}/${grievance._id}`}
+          to={`${effectiveBasePath}/${grievance._id}`}
           className="text-base font-semibold text-slate-800 hover:text-violet-600 transition-colors line-clamp-1 mb-2 block"
         >
           {grievance.title}
@@ -50,7 +59,7 @@ export default function GrievanceCard({ grievance, basePath = '/complaints' }) {
           </span>
 
           <Link
-            to={`${basePath}/${grievance._id}`}
+            to={`${effectiveBasePath}/${grievance._id}`}
             className="inline-flex items-center text-xs font-semibold text-violet-600 hover:text-violet-700"
           >
             View details

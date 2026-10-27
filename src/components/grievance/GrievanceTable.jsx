@@ -1,17 +1,26 @@
 import { Link } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
 import StatusBadge from '../common/StatusBadge';
 import PriorityBadge from './PriorityBadge';
 import { Eye, MapPin, Building2, CheckCircle2, UserCheck } from 'lucide-react';
 
 export default function GrievanceTable({
   grievances = [],
-  basePath = '/complaints',
+  basePath,
   showCitizen = false,
   showDepartment = true,
   showOfficer = false,
   showConfidence = true,
   onAction
 }) {
+  const { user } = useAuth();
+  const defaultBasePath =
+    user?.role === 'admin'
+      ? '/admin/grievances'
+      : user?.role === 'officer'
+      ? '/officer/grievances'
+      : '/citizen/grievances';
+  const effectiveBasePath = basePath || defaultBasePath;
   return (
     <div className="overflow-x-auto rounded-xl border border-slate-200/80 bg-white shadow-xs">
       <table className="w-full text-left border-collapse text-sm">
@@ -119,7 +128,7 @@ export default function GrievanceTable({
 
                 <td className="py-3.5 px-4 text-right whitespace-nowrap">
                   <Link
-                    to={`${basePath}/${item._id}`}
+                    to={`${effectiveBasePath}/${item._id}`}
                     className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg text-violet-700 bg-violet-50 hover:bg-violet-100 transition-colors"
                   >
                     <Eye className="h-3.5 w-3.5" />

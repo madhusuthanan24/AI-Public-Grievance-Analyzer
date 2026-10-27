@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import api from '../../services/api';
+import api, { getAssetUrl } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import DashboardLayout from '../../components/layout/DashboardLayout';
 import StatusBadge from '../../components/common/StatusBadge';
@@ -544,7 +544,7 @@ export default function ComplaintReview() {
                               </div>
                             </div>
                             <a
-                              href={att.url}
+                              href={getAssetUrl(att.url)}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="px-2.5 py-1 text-xs font-medium rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 transition-colors shrink-0 inline-flex items-center gap-1"
@@ -558,7 +558,7 @@ export default function ComplaintReview() {
                     </div>
                   ) : complaint.imageUrl && complaint.imageUrl.endsWith('.pdf') ? (
                     <a
-                      href={complaint.imageUrl}
+                      href={getAssetUrl(complaint.imageUrl)}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-2 p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors"
@@ -569,7 +569,7 @@ export default function ComplaintReview() {
                     </a>
                   ) : complaint.imageUrl ? (
                     <img
-                      src={complaint.imageUrl}
+                      src={getAssetUrl(complaint.imageUrl)}
                       alt="Evidence"
                       className="rounded-xl max-h-72 object-cover border border-slate-200 shadow-2xs"
                     />

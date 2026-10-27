@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
 // Public Pages
@@ -32,9 +32,19 @@ import UserProfile from './pages/common/UserProfile';
 // Loading Spinner
 import LoadingSpinner from './components/common/LoadingSpinner';
 
+// Dynamic resolver for legacy /complaints/:id URLs
+function LegacyComplaintRedirect() {
+  const { id } = useParams();
+  const { user } = useAuth();
+  if (user?.role === 'admin') return <Navigate to={`/admin/grievances/${id}`} replace />;
+  if (user?.role === 'officer') return <Navigate to={`/officer/grievances/${id}`} replace />;
+  return <Navigate to={`/citizen/grievances/${id}`} replace />;
+}
+
 // Protected Route Guard
 function ProtectedRoute({ children, allowedRoles }) {
   const { user, loading } = useAuth();
+  const location = useLocation();
 
   if (loading) {
     return (
@@ -45,7 +55,7 @@ function ProtectedRoute({ children, allowedRoles }) {
   }
 
   if (!user) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
   if (allowedRoles && !allowedRoles.includes(user.role)) {
@@ -148,7 +158,7 @@ function AppRoutes() {
       {/* Backward Compatibility Alias for citizen */}
       <Route path="/complaints" element={<Navigate to="/citizen/grievances" replace />} />
       <Route path="/submit-complaint" element={<Navigate to="/citizen/submit" replace />} />
-      <Route path="/complaints/:id" element={<Navigate to="/citizen/grievances/:id" replace />} />
+      <Route path="/complaints/:id" element={<LegacyComplaintRedirect />} />
 
       {/* Admin Protected Routes */}
       <Route
@@ -207,6 +217,14 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
+      <Route
+        path="/admin/profile"
+        element={
+          <ProtectedRoute allowedRoles={['admin']}>
+            <UserProfile />
+          </ProtectedRoute>
+        }
+      />
 
       {/* Officer Protected Routes */}
       <Route
@@ -250,8 +268,33 @@ function AppRoutes() {
         }
       />
 
-      {/* Catch-all fallback */}
-      <Route path="*" element={<Navigate to="/" replace />} />
+      {/* Generic Profile Route for any authenticated user */}
+      <Route
+        path="/profile"
+        element={
+          <ProtectedRoute allowedRoles={['citizen', 'officer', 'admin']}>
+            <UserProfile />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Role-aware Catch-all fallback */}
+      <Route
+        path="*"
+        element={
+          user ? (
+            user.role === 'admin' ? (
+              <Navigate to="/admin/dashboard" replace />
+            ) : user.role === 'officer' ? (
+              <Navigate to="/officer/dashboard" replace />
+            ) : (
+              <Navigate to="/citizen/dashboard" replace />
+            )
+          ) : (
+            <Navigate to="/" replace />
+          )
+        }
+      />
     </Routes>
   );
 }
