@@ -3,15 +3,22 @@ import axios from 'axios';
 const PRODUCTION_API_URL = 'https://ai-public-grievance-analyzer.onrender.com/api';
 
 const getBaseURL = () => {
-  if (import.meta.env.VITE_API_URL) {
-    return import.meta.env.VITE_API_URL;
+  const envUrl = import.meta.env.VITE_API_URL;
+  if (envUrl && typeof envUrl === 'string' && envUrl.trim() !== '') {
+    let raw = envUrl.trim().replace(/\/+$/, '');
+    if (!raw.endsWith('/api')) {
+      raw = `${raw}/api`;
+    }
+    return raw;
   }
+
   if (
     typeof window !== 'undefined' &&
     (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
   ) {
-    return '/api';
+    return 'http://localhost:3001/api';
   }
+
   return PRODUCTION_API_URL;
 };
 
@@ -19,11 +26,15 @@ const api = axios.create({
   baseURL: getBaseURL()
 });
 
-// Request interceptor to attach JWT token
+// Request interceptor to attach JWT token and avoid duplicated /api prefixes
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('token');
+    // Avoid double /api prefix if client code passed /api/...
+    if (config.url && config.url.startsWith('/api/')) {
+      config.url = config.url.replace(/^\/api/, '');
+    }
 
+    const token = localStorage.getItem('token');
     if (token && token !== 'undefined' && token !== 'null') {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -44,8 +55,10 @@ api.interceptors.response.use(
         window.location.pathname.startsWith('/register') ||
         window.location.pathname === '/');
 
-    // Only redirect if a protected request fails with 401 and token exists
-    if (error.response?.status === 401 && !isAuthPage && token) {
+    const isMeRequest = error.config?.url?.includes('/auth/me');
+
+    // Never trigger full window redirect loop from auth pages or background /auth/me checks
+    if (error.response?.status === 401 && !isAuthPage && !isMeRequest && token) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       window.location.href = '/login';

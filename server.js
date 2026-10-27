@@ -31,22 +31,36 @@ async function startServer() {
   }
   app.use('/uploads', express.static(uploadsDir));
 
-  // Health check route
-  app.get('/api/health', (req, res) => {
+  // Health check routes (both /api/health and /health)
+  const healthHandler = (req, res) => {
     const isMongoConnected = require('mongoose').connection.readyState === 1;
     res.status(200).json({
       status: 'OK',
+      message: 'API is running',
       database: isMongoConnected ? 'connected' : 'unavailable',
       storage: isMongoConnected ? 'mongodb' : 'memory',
       timestamp: new Date().toISOString()
     });
-  });
+  };
+  app.get('/api/health', healthHandler);
+  app.get('/health', healthHandler);
 
-  // Mount API routers
+  // Mount API routers (primary canonical /api/* routes)
   app.use('/api/auth', require('./backend/routes/authRoutes'));
   app.use('/api/complaints', require('./backend/routes/complaintRoutes'));
   app.use('/api/departments', require('./backend/routes/departmentRoutes'));
   app.use('/api/analytics', require('./backend/routes/analyticsRoutes'));
+
+  // Backward compatibility aliases (without /api)
+  app.use('/auth', require('./backend/routes/authRoutes'));
+  app.use('/complaints', require('./backend/routes/complaintRoutes'));
+  app.use('/departments', require('./backend/routes/departmentRoutes'));
+  app.use('/analytics', require('./backend/routes/analyticsRoutes'));
+
+  // 404 handler for unmatched API requests
+  app.all('/api/*', (req, res) => {
+    res.status(404).json({ message: `API route not found: ${req.method} ${req.originalUrl}` });
+  });
 
   // Mongoose, Multer & database fallback error middleware
   app.use((err, req, res, next) => {
