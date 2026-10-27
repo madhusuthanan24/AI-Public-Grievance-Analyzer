@@ -193,14 +193,21 @@ Respond ONLY with a valid JSON object matching:
   const candidateModels = ['gemini-flash-latest', 'gemini-3.1-flash-lite', 'gemini-3.8-flash'];
   for (const modelName of candidateModels) {
     try {
-      const response = await ai.models.generateContent({
+      const callWithTimeout = (promise, ms = 4000) => {
+        return Promise.race([
+          promise,
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Duplicate detection AI timeout')), ms))
+        ]);
+      };
+
+      const response = await callWithTimeout(ai.models.generateContent({
         model: modelName,
         contents: prompt,
         config: {
           responseMimeType: 'application/json',
           temperature: 0.1
         }
-      });
+      }));
 
       const rawText = cleanJsonResponse(response.text);
       const parsed = JSON.parse(rawText);

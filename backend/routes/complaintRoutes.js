@@ -4,6 +4,7 @@ const {
   submitComplaint,
   getMyComplaints,
   getComplaintById,
+  getComplaintEvidence,
   getDepartmentComplaints,
   getOfficerComplaints,
   assignComplaint,
@@ -77,6 +78,10 @@ router.put('/:id/assign', roleCheck(['admin']), assignComplaint);
 // Module 9: Duplicate Detection & Administrative Decision Routes (Admin only)
 router.get('/:id/duplicates', roleCheck(['admin']), getComplaintDuplicates);
 router.put('/:id/duplicate-review', roleCheck(['admin']), reviewDuplicateComplaint);
+
+// Evidence retrieval routes (Module 5.22 - Secure authenticated attachment retrieval)
+router.get('/:id/evidence/:fileId', roleCheck(['citizen', 'officer', 'admin']), getComplaintEvidence);
+router.get('/:id/evidence', roleCheck(['citizen', 'officer', 'admin']), getComplaintEvidence);
 
 // Detail route (by _id or grievanceId)
 router.get('/:id', roleCheck(['citizen', 'officer', 'admin']), getComplaintById);

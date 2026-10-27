@@ -20,7 +20,11 @@ const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
-app.use('/uploads', express.static(uploadsDir));
+app.use('/uploads', (req, res) => {
+  res.status(403).json({
+    message: 'Forbidden: Direct public access to uploaded evidence is disabled for citizen privacy. Please access evidence through the authenticated grievance API.'
+  });
+});
 
 // Basic Route
 app.get('/api/health', (req, res) => {
@@ -30,6 +34,7 @@ app.get('/api/health', (req, res) => {
 // Import and mount routers (we will define these next)
 app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/complaints', require('./routes/complaintRoutes'));
+app.use('/api/grievances', require('./routes/complaintRoutes'));
 app.use('/api/departments', require('./routes/departmentRoutes'));
 app.use('/api/analytics', require('./routes/analyticsRoutes'));
 

@@ -78,6 +78,9 @@ const ComplaintSchema = new mongoose.Schema({
   attachments: [{
     url: String,
     filename: String,
+    originalName: String,
+    mimetype: String,
+    size: Number,
     uploadedAt: { type: Date, default: Date.now }
   }],
   assignedDepartment: {

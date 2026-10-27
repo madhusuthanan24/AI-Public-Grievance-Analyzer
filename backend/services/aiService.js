@@ -309,14 +309,21 @@ Respond ONLY with a valid JSON object matching this structure:
   const candidateModels = ['gemini-flash-latest', 'gemini-3.1-flash-lite', 'gemini-3.8-flash'];
   for (const modelName of candidateModels) {
     try {
-      const response = await ai.models.generateContent({
+      const callWithTimeout = (promise, ms = 6000) => {
+        return Promise.race([
+          promise,
+          new Promise((_, reject) => setTimeout(() => reject(new Error('AI request timeout')), ms))
+        ]);
+      };
+
+      const response = await callWithTimeout(ai.models.generateContent({
         model: modelName,
         contents: prompt,
         config: {
           responseMimeType: 'application/json',
           temperature: 0.1
         }
-      });
+      }));
 
       const rawText = response.text || '';
       const cleanText = cleanJsonResponse(rawText);

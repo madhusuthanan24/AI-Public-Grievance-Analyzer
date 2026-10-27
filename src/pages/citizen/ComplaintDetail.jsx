@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import api, { getAssetUrl } from '../../services/api';
+import api, { getAssetUrl, fetchEvidenceBlob } from '../../services/api';
 import DashboardLayout from '../../components/layout/DashboardLayout';
 import StatusBadge from '../../components/common/StatusBadge';
 import PriorityBadge from '../../components/grievance/PriorityBadge';
@@ -43,6 +43,12 @@ export default function ComplaintDetail() {
   const [error, setError] = useState('');
   const [reviewing, setReviewing] = useState(false);
   const [reviewSuccess, setReviewSuccess] = useState('');
+
+  // Evidence viewing & inline preview state
+  const [openingFile, setOpeningFile] = useState('');
+  const [evidenceError, setEvidenceError] = useState('');
+  const [previewBlobUrl, setPreviewBlobUrl] = useState(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   // Module 7: Department & Officer Assignment State
   const [departments, setDepartments] = useState([]);
@@ -92,6 +98,68 @@ export default function ComplaintDetail() {
       fetchDepartments();
     }
   }, [id, user?.role]);
+
+  // Securely load inline evidence preview via authenticated blob retrieval
+  useEffect(() => {
+    let activeBlobUrl = null;
+    if (complaint && (complaint.imageUrl || (complaint.attachments && complaint.attachments.length > 0))) {
+      const fileTarget = complaint.imageUrl || complaint.attachments[0]?.url || complaint.attachments[0]?.filename;
+      const isPdf = (fileTarget || '').toLowerCase().endsWith('.pdf');
+
+      if (fileTarget && !isPdf) {
+        setPreviewLoading(true);
+        fetchEvidenceBlob(complaint.grievanceId || complaint._id || id, fileTarget)
+          .then(({ blobUrl }) => {
+            activeBlobUrl = blobUrl;
+            setPreviewBlobUrl(blobUrl);
+          })
+          .catch((err) => {
+            console.warn('Could not load inline preview:', err.response?.status);
+          })
+          .finally(() => {
+            setPreviewLoading(false);
+          });
+      }
+    }
+
+    return () => {
+      if (activeBlobUrl) {
+        URL.revokeObjectURL(activeBlobUrl);
+      }
+    };
+  }, [complaint?._id, complaint?.grievanceId, complaint?.imageUrl, id]);
+
+  const handleOpenEvidence = async (fileIdOrUrl) => {
+    try {
+      setOpeningFile(fileIdOrUrl);
+      setEvidenceError('');
+      const targetId = complaint?.grievanceId || complaint?._id || id;
+      const { blobUrl } = await fetchEvidenceBlob(targetId, fileIdOrUrl);
+
+      const newWindow = window.open(blobUrl, '_blank', 'noopener,noreferrer');
+      if (!newWindow) {
+        const link = document.createElement('a');
+        link.href = blobUrl;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+    } catch (err) {
+      console.error('Failed to open evidence file:', err);
+      if (err.response?.status === 403) {
+        setEvidenceError('Access denied: You do not have authorization to view this evidence attachment.');
+      } else if (err.response?.status === 404) {
+        setEvidenceError('Attachment not found: The requested evidence file does not exist on the server.');
+      } else {
+        setEvidenceError(err.response?.data?.message || 'Failed to retrieve attachment file.');
+      }
+    } finally {
+      setOpeningFile('');
+    }
+  };
 
   // When selectedDeptId changes, if it is different from currently loaded, reset officer selection if not in that department
   const currentDept = departments.find(d => d._id === selectedDeptId);
@@ -856,10 +924,28 @@ export default function ComplaintDetail() {
                 <div className="pt-4 border-t border-slate-100 space-y-3">
                   <h4 className="text-xs font-semibold text-slate-700">Supporting Attachments:</h4>
                   
+                  {evidenceError && (
+                    <div className="p-3 bg-rose-50 text-rose-800 rounded-xl border border-rose-200 text-xs flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <AlertTriangle className="h-4 w-4 text-rose-600 shrink-0" />
+                        <span>{evidenceError}</span>
+                      </div>
+                      <button
+                        onClick={() => setEvidenceError('')}
+                        className="text-xs text-rose-600 hover:text-rose-800 font-bold ml-2 cursor-pointer"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  )}
+
                   {complaint.attachments && complaint.attachments.length > 0 ? (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       {complaint.attachments.map((att, idx) => {
                         const isPdf = (att.filename || att.url || '').toLowerCase().endsWith('.pdf');
+                        const fileIdentifier = att.url || att.filename;
+                        const isOpening = openingFile === fileIdentifier;
+
                         return (
                           <div key={idx} className="p-3 bg-slate-50 border border-slate-200/80 rounded-xl flex items-center justify-between gap-3">
                             <div className="flex items-center gap-2 min-w-0">
@@ -870,43 +956,61 @@ export default function ComplaintDetail() {
                               )}
                               <div className="min-w-0">
                                 <p className="text-xs font-semibold text-slate-800 truncate">
-                                  {att.filename || `Attachment-${idx + 1}`}
+                                  {att.originalName || att.filename || `Attachment-${idx + 1}`}
                                 </p>
                                 <p className="text-[10px] text-slate-400">
                                   {isPdf ? 'PDF Document' : 'Image File'} • {att.uploadedAt ? new Date(att.uploadedAt).toLocaleDateString() : 'Uploaded'}
                                 </p>
                               </div>
                             </div>
-                            <a
-                              href={getAssetUrl(att.url)}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="px-2.5 py-1 text-xs font-medium rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 transition-colors shrink-0 inline-flex items-center gap-1"
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEvidence(fileIdentifier)}
+                              disabled={isOpening}
+                              className="px-2.5 py-1 text-xs font-medium rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 transition-colors shrink-0 inline-flex items-center gap-1 disabled:opacity-60 cursor-pointer"
                             >
-                              <span>Open</span>
-                              <ExternalLink className="h-3 w-3 text-slate-400" />
-                            </a>
+                              {isOpening ? (
+                                <span>Opening...</span>
+                              ) : (
+                                <>
+                                  <span>Open</span>
+                                  <ExternalLink className="h-3 w-3 text-slate-400" />
+                                </>
+                              )}
+                            </button>
                           </div>
                         );
                       })}
                     </div>
-                  ) : complaint.imageUrl && complaint.imageUrl.endsWith('.pdf') ? (
-                    <a
-                      href={getAssetUrl(complaint.imageUrl)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-2 p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors"
+                  ) : null}
+
+                  {/* Inline Document / Image Preview */}
+                  {complaint.imageUrl && complaint.imageUrl.toLowerCase().endsWith('.pdf') ? (
+                    <button
+                      type="button"
+                      onClick={() => handleOpenEvidence(complaint.imageUrl)}
+                      disabled={openingFile === complaint.imageUrl}
+                      className="inline-flex items-center gap-2 p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
                     >
                       <FileCheck className="h-5 w-5 text-rose-600" />
-                      <span>View Uploaded PDF Document</span>
+                      <span>{openingFile === complaint.imageUrl ? 'Loading PDF Document...' : 'View Uploaded PDF Document'}</span>
                       <ExternalLink className="h-3.5 w-3.5 text-slate-400" />
-                    </a>
-                  ) : complaint.imageUrl ? (
-                    <img
-                      src={getAssetUrl(complaint.imageUrl)}
-                      alt="Supporting Evidence"
-                      className="rounded-xl max-h-72 object-cover border border-slate-200 shadow-2xs"
-                    />
+                    </button>
+                  ) : previewLoading ? (
+                    <div className="p-6 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-center">
+                      <LoadingSpinner text="Retrieving evidence preview..." />
+                    </div>
+                  ) : previewBlobUrl ? (
+                    <div className="space-y-1">
+                      <img
+                        src={previewBlobUrl}
+                        alt="Supporting Evidence"
+                        onClick={() => handleOpenEvidence(complaint.imageUrl || complaint.attachments[0]?.filename)}
+                        title="Click to view full image in new tab"
+                        className="rounded-xl max-h-72 object-cover border border-slate-200 shadow-2xs cursor-pointer hover:opacity-95 transition-opacity"
+                      />
+                      <p className="text-[11px] text-slate-400">Click image to inspect full size in a new tab</p>
+                    </div>
                   ) : null}
                 </div>
               )}

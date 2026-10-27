@@ -1,4 +1,6 @@
 const mongoose = require('mongoose');
+const path = require('path');
+const fs = require('fs');
 const Complaint = require('../models/Complaint');
 const Department = require('../models/Department');
 const User = require('../models/User');
@@ -134,20 +136,24 @@ exports.submitComplaint = async (req, res) => {
     // Security: Ignore client-injected administrative fields
     // (status, assignedOfficerId, assignedDepartment, aiConfidence, aiSummary, aiReason, aiRecommendedAction)
 
-    // Handle File Attachment (Module 5.22)
+    // Unique Grievance Tracking ID (Module 5.2)
+    const humanGrievanceId = await generateUniqueGrievanceId();
+
+    // Handle File Attachment (Module 5.22 - Storing evidence metadata and canonical API route)
     let imageUrl = null;
     let attachments = [];
     if (req.file) {
-      imageUrl = `/uploads/${req.file.filename}`;
+      const evidenceApiUrl = `/api/complaints/${humanGrievanceId}/evidence/${req.file.filename}`;
+      imageUrl = evidenceApiUrl;
       attachments.push({
-        url: imageUrl,
-        filename: req.file.originalname || req.file.filename,
+        url: evidenceApiUrl,
+        filename: req.file.filename,
+        originalName: req.file.originalname || req.file.filename,
+        mimetype: req.file.mimetype,
+        size: req.file.size,
         uploadedAt: new Date()
       });
     }
-
-    // Unique Grievance Tracking ID (Module 5.2)
-    const humanGrievanceId = await generateUniqueGrievanceId();
 
     // 1. Initial State: Status = SUBMITTED (Module 5.3)
     let initialStatus = 'SUBMITTED';
@@ -182,6 +188,9 @@ exports.submitComplaint = async (req, res) => {
         changedByRole: 'citizen'
       });
     } else {
+      if (process.env.NODE_ENV === 'production') {
+        return res.status(503).json({ message: 'Database service is temporarily unavailable. Please try again shortly.' });
+      }
       // In-memory initial save
       savedComplaint = {
         _id: memoryStore.generateId(),
@@ -1686,3 +1695,160 @@ exports.reviewDuplicateComplaint = async (req, res) => {
     res.status(500).json({ message: 'Server error processing duplicate review' });
   }
 };
+
+/**
+ * @desc    Get complaint evidence file (secure authenticated attachment retrieval)
+ * @route   GET /api/complaints/:id/evidence/:fileId
+ *          GET /api/complaints/:id/evidence
+ *          GET /api/grievances/:id/evidence/:fileId
+ * @access  Private (Citizen owner, assigned officer, department officer if unassigned, admin)
+ */
+exports.getComplaintEvidence = async (req, res) => {
+  try {
+    const { id, fileId } = req.params;
+
+    if (!id) {
+      return res.status(400).json({ message: 'Grievance ID parameter is required' });
+    }
+
+    let complaint = null;
+
+    if (mongoose.connection.readyState === 1) {
+      let query = { $or: [{ grievanceId: id }] };
+      if (mongoose.Types.ObjectId.isValid(id)) {
+        query.$or.push({ _id: id });
+      }
+      complaint = await Complaint.findOne(query)
+        .populate('userId', '_id name email role')
+        .populate('assignedDepartment', '_id name code')
+        .populate('assignedOfficerId', '_id name email role department');
+    } else {
+      if (process.env.NODE_ENV === 'production') {
+        return res.status(503).json({ message: 'Database service is temporarily unavailable.' });
+      }
+      complaint = memoryStore.complaints.find(c =>
+        c._id.toString() === id.toString() || c.grievanceId === id
+      );
+    }
+
+    if (!complaint) {
+      return res.status(404).json({ message: 'Grievance not found' });
+    }
+
+    // Role-based Access Authorization Check (Module 4, 7, and Evidence Privacy)
+    const userRole = req.user.role;
+    const userId = (req.user._id || '').toString();
+
+    if (userRole === 'citizen') {
+      const ownerId = (complaint.userId?._id || complaint.userId || '').toString();
+      if (ownerId !== userId) {
+        return res.status(403).json({ message: 'Forbidden: Access denied to evidence for this grievance' });
+      }
+    } else if (userRole === 'officer') {
+      const officerDept = req.user.department ? (req.user.department._id || req.user.department).toString() : '';
+      const complaintDept = complaint.assignedDepartment ? (complaint.assignedDepartment._id || complaint.assignedDepartment).toString() : '';
+      const assignedOfficer = complaint.assignedOfficerId ? (complaint.assignedOfficerId._id || complaint.assignedOfficerId).toString() : null;
+
+      if (assignedOfficer) {
+        if (assignedOfficer !== userId) {
+          return res.status(403).json({ message: 'Forbidden: You are not the assigned officer for this grievance' });
+        }
+      } else if (!complaintDept || officerDept !== complaintDept) {
+        return res.status(403).json({ message: 'Forbidden: Restricted to assigned department complaints' });
+      }
+    } else if (userRole !== 'admin') {
+      return res.status(403).json({ message: 'Forbidden: Unauthorized role' });
+    }
+
+    // Find requested evidence file within complaint records
+    // Sanitize requested fileId to prevent path traversal
+    const rawRequestedId = fileId || 'primary';
+    const sanitizedFileId = path.basename(rawRequestedId);
+
+    let matchedAttachment = null;
+    let targetFilename = null;
+
+    if (complaint.attachments && complaint.attachments.length > 0) {
+      matchedAttachment = complaint.attachments.find(a => {
+        if (!a) return false;
+        const fname = a.filename ? path.basename(a.filename) : '';
+        const urlName = a.url ? path.basename(a.url) : '';
+        const origName = a.originalName ? path.basename(a.originalName) : '';
+        const subId = a._id ? a._id.toString() : '';
+        return (
+          fname === sanitizedFileId ||
+          urlName === sanitizedFileId ||
+          origName === sanitizedFileId ||
+          subId === rawRequestedId
+        );
+      });
+    }
+
+    if (matchedAttachment) {
+      targetFilename = matchedAttachment.url ? path.basename(matchedAttachment.url) : path.basename(matchedAttachment.filename);
+    } else if (complaint.imageUrl) {
+      const imgBase = path.basename(complaint.imageUrl);
+      if (
+        sanitizedFileId === 'primary' ||
+        sanitizedFileId === 'image' ||
+        sanitizedFileId === 'evidence' ||
+        sanitizedFileId === imgBase
+      ) {
+        targetFilename = imgBase;
+      }
+    } else if (sanitizedFileId === 'primary' && complaint.attachments && complaint.attachments[0]) {
+      const first = complaint.attachments[0];
+      targetFilename = first.url ? path.basename(first.url) : path.basename(first.filename);
+    }
+
+    if (!targetFilename) {
+      return res.status(404).json({ message: 'Evidence file not found on this grievance record' });
+    }
+
+    // Prevent Path Traversal strictly
+    const safeFilename = path.basename(targetFilename);
+    const uploadsDir = path.resolve(__dirname, '..', '..', 'uploads');
+    const absoluteFilePath = path.resolve(uploadsDir, safeFilename);
+
+    // Verify path stays strictly within uploadsDir
+    if (!absoluteFilePath.startsWith(uploadsDir + path.sep)) {
+      return res.status(400).json({ message: 'Security validation failed: Invalid file path' });
+    }
+
+    if (!fs.existsSync(absoluteFilePath)) {
+      return res.status(404).json({ message: 'Evidence file not found on server disk' });
+    }
+
+    // Determine MIME type
+    const ext = path.extname(safeFilename).toLowerCase();
+    const mimeMap = {
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.png': 'image/png',
+      '.webp': 'image/webp',
+      '.pdf': 'application/pdf'
+    };
+    const contentType = matchedAttachment?.mimetype || mimeMap[ext] || 'application/octet-stream';
+
+    // Set HTTP Headers
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'private, no-cache, no-store, must-revalidate');
+    const downloadName = matchedAttachment?.originalName || matchedAttachment?.filename || safeFilename;
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(downloadName)}"`);
+
+    // Stream file to client
+    const stream = fs.createReadStream(absoluteFilePath);
+    stream.on('error', (err) => {
+      console.error('Evidence streaming error:', err);
+      if (!res.headersSent) {
+        res.status(500).json({ message: 'Error streaming evidence file' });
+      }
+    });
+    return stream.pipe(res);
+  } catch (error) {
+    console.error('getComplaintEvidence error:', error);
+    return res.status(500).json({ message: 'Server error retrieving evidence' });
+  }
+};
+
