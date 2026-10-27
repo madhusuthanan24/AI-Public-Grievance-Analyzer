@@ -81,6 +81,8 @@ const ComplaintSchema = new mongoose.Schema({
     originalName: String,
     mimetype: String,
     size: Number,
+    storageProvider: { type: String, default: 'gridfs' },
+    storageKey: String,
     uploadedAt: { type: Date, default: Date.now }
   }],
   assignedDepartment: {

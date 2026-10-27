@@ -15,11 +15,10 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Ensure uploads folder exists
-const uploadsDir = path.join(__dirname, 'uploads');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
+// Ensure persistent uploads directory exists
+const storageService = require('./services/storageService');
+storageService.getUploadsDir();
+
 app.use('/uploads', (req, res) => {
   res.status(403).json({
     message: 'Forbidden: Direct public access to uploaded evidence is disabled for citizen privacy. Please access evidence through the authenticated grievance API.'
@@ -28,7 +27,8 @@ app.use('/uploads', (req, res) => {
 
 // Basic Route
 app.get('/api/health', (req, res) => {
-  res.status(200).json({ status: 'OK', message: 'API is running' });
+  const storageDiag = storageService.getDiagnostics();
+  res.status(200).json({ status: 'OK', message: 'API is running', evidenceStorage: storageDiag.provider });
 });
 
 // Import and mount routers (we will define these next)

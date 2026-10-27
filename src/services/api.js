@@ -85,21 +85,34 @@ export const fetchEvidenceBlob = async (complaintId, fileIdOrUrl) => {
     fileId = fileId.split('/').pop().split('?')[0];
   }
 
-  const response = await api.get(`/complaints/${complaintId}/evidence/${fileId}`, {
-    responseType: 'blob'
-  });
+  try {
+    const response = await api.get(`/complaints/${complaintId}/evidence/${fileId}`, {
+      responseType: 'blob'
+    });
 
-  const contentType = response.headers['content-type'] || 'image/jpeg';
-  const blob = new Blob([response.data], { type: contentType });
-  const blobUrl = URL.createObjectURL(blob);
+    const contentType = response.headers['content-type'] || 'image/jpeg';
+    const blob = new Blob([response.data], { type: contentType });
+    const blobUrl = URL.createObjectURL(blob);
 
-  return {
-    blobUrl,
-    contentType,
-    revoke: () => {
-      URL.revokeObjectURL(blobUrl);
+    return {
+      blobUrl,
+      contentType,
+      revoke: () => {
+        URL.revokeObjectURL(blobUrl);
+      }
+    };
+  } catch (error) {
+    if (error.response?.data && typeof error.response.data.text === 'function') {
+      try {
+        const text = await error.response.data.text();
+        const json = JSON.parse(text);
+        error.response.data = json;
+      } catch (_) {
+        // Response was not JSON, keep original blob
+      }
     }
-  };
+    throw error;
+  }
 };
 
 /**

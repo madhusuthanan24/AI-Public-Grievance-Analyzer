@@ -8,6 +8,7 @@ const GrievanceHistory = require('../models/GrievanceHistory');
 const AIAnalysis = require('../models/AIAnalysis');
 const aiService = require('../services/aiService');
 const duplicateDetectionService = require('../services/duplicateDetectionService');
+const storageService = require('../services/storageService');
 const memoryStore = require('../config/memoryStore');
 
 /**
@@ -143,6 +144,8 @@ exports.submitComplaint = async (req, res) => {
     let imageUrl = null;
     let attachments = [];
     if (req.file) {
+      // Persist permanently across Render restarts via MongoDB Atlas GridFS and persistent disk
+      const stored = await storageService.saveEvidenceFile(req.file);
       const evidenceApiUrl = `/api/complaints/${humanGrievanceId}/evidence/${req.file.filename}`;
       imageUrl = evidenceApiUrl;
       attachments.push({
@@ -151,6 +154,8 @@ exports.submitComplaint = async (req, res) => {
         originalName: req.file.originalname || req.file.filename,
         mimetype: req.file.mimetype,
         size: req.file.size,
+        storageProvider: stored?.provider || 'gridfs+disk',
+        storageKey: req.file.filename,
         uploadedAt: new Date()
       });
     }
@@ -1802,50 +1807,56 @@ exports.getComplaintEvidence = async (req, res) => {
     }
 
     if (!targetFilename) {
-      return res.status(404).json({ message: 'Evidence file not found on this grievance record' });
+      return res.status(404).json({
+        message: 'Evidence file not found on this grievance record',
+        unavailable: true
+      });
     }
 
     // Prevent Path Traversal strictly
     const safeFilename = path.basename(targetFilename);
-    const uploadsDir = path.resolve(__dirname, '..', '..', 'uploads');
-    const absoluteFilePath = path.resolve(uploadsDir, safeFilename);
 
-    // Verify path stays strictly within uploadsDir
-    if (!absoluteFilePath.startsWith(uploadsDir + path.sep)) {
-      return res.status(400).json({ message: 'Security validation failed: Invalid file path' });
-    }
+    // Safe backend diagnostics log (storage provider, safe filename, grievance ID, without sensitive data)
+    const storageDiag = storageService.getDiagnostics();
+    console.log(`[Evidence Retrieval Diagnostic] Grievance: "${complaint.grievanceId || id}", User Role: "${userRole}", File: "${safeFilename}", Provider: "${storageDiag.provider}"`);
 
-    if (!fs.existsSync(absoluteFilePath)) {
-      return res.status(404).json({ message: 'Evidence file not found on server disk' });
+    // Retrieve file stream via persistent storage (GridFS first, then persistent disk)
+    const evidenceData = await storageService.getEvidenceStream(safeFilename);
+
+    if (!evidenceData) {
+      // Diagnostic failure log without leaking secrets, passwords, tokens, or PII
+      console.warn(`[Evidence Retrieval Diagnostic] File "${safeFilename}" unavailable for grievance "${complaint.grievanceId || id}". Checked GridFS (bucket: evidence) and disk (${storageDiag.configuredUploadsDir}). Reason: Physical file missing from storage.`);
+
+      return res.status(404).json({
+        message: 'Evidence file is unavailable; please upload it again',
+        unavailable: true,
+        filename: safeFilename,
+        grievanceId: complaint.grievanceId || id
+      });
     }
 
     // Determine MIME type
-    const ext = path.extname(safeFilename).toLowerCase();
-    const mimeMap = {
-      '.jpg': 'image/jpeg',
-      '.jpeg': 'image/jpeg',
-      '.png': 'image/png',
-      '.webp': 'image/webp',
-      '.pdf': 'application/pdf'
-    };
-    const contentType = matchedAttachment?.mimetype || mimeMap[ext] || 'application/octet-stream';
+    const contentType = matchedAttachment?.mimetype || evidenceData.mimetype || 'application/octet-stream';
+    const downloadName = matchedAttachment?.originalName || evidenceData.originalName || safeFilename;
 
     // Set HTTP Headers
     res.setHeader('Content-Type', contentType);
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Cache-Control', 'private, no-cache, no-store, must-revalidate');
-    const downloadName = matchedAttachment?.originalName || matchedAttachment?.filename || safeFilename;
     res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(downloadName)}"`);
+    if (evidenceData.size) {
+      res.setHeader('Content-Length', evidenceData.size);
+    }
 
     // Stream file to client
-    const stream = fs.createReadStream(absoluteFilePath);
-    stream.on('error', (err) => {
-      console.error('Evidence streaming error:', err);
+    evidenceData.stream.on('error', (err) => {
+      console.error('[Evidence Streaming Error]:', err.message);
       if (!res.headersSent) {
         res.status(500).json({ message: 'Error streaming evidence file' });
       }
     });
-    return stream.pipe(res);
+
+    return evidenceData.stream.pipe(res);
   } catch (error) {
     console.error('getComplaintEvidence error:', error);
     return res.status(500).json({ message: 'Server error retrieving evidence' });

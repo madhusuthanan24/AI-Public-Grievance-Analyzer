@@ -54,6 +54,7 @@ export default function ComplaintReview() {
   const [evidenceError, setEvidenceError] = useState('');
   const [previewBlobUrl, setPreviewBlobUrl] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewUnavailable, setPreviewUnavailable] = useState(false);
 
   // Processing state
   const [processingRemark, setProcessingRemark] = useState('');
@@ -85,6 +86,7 @@ export default function ComplaintReview() {
   // Securely load inline evidence preview via authenticated blob retrieval
   useEffect(() => {
     let activeBlobUrl = null;
+    setPreviewUnavailable(false);
     if (complaint && (complaint.imageUrl || (complaint.attachments && complaint.attachments.length > 0))) {
       const fileTarget = complaint.imageUrl || complaint.attachments[0]?.url || complaint.attachments[0]?.filename;
       const isPdf = (fileTarget || '').toLowerCase().endsWith('.pdf');
@@ -98,6 +100,9 @@ export default function ComplaintReview() {
           })
           .catch((err) => {
             console.warn('Could not load officer inline preview:', err.response?.status);
+            if (err.response?.status === 404) {
+              setPreviewUnavailable(true);
+            }
           })
           .finally(() => {
             setPreviewLoading(false);
@@ -133,9 +138,9 @@ export default function ComplaintReview() {
     } catch (err) {
       console.error('Failed to open evidence file:', err);
       if (err.response?.status === 403) {
-        setEvidenceError('Access denied: You do not have authorization to view this evidence attachment.');
+        setEvidenceError(err.response?.data?.message || 'Access denied: You do not have authorization to view this evidence attachment.');
       } else if (err.response?.status === 404) {
-        setEvidenceError('Attachment not found: The requested evidence file does not exist on the server.');
+        setEvidenceError(err.response?.data?.message || 'Evidence file is unavailable; please upload it again');
       } else {
         setEvidenceError(err.response?.data?.message || 'Failed to retrieve attachment file.');
       }
@@ -676,6 +681,11 @@ export default function ComplaintReview() {
                         className="rounded-xl max-h-72 object-cover border border-slate-200 shadow-2xs cursor-pointer hover:opacity-95 transition-opacity"
                       />
                       <p className="text-[11px] text-slate-400">Click image to inspect full size in a new tab</p>
+                    </div>
+                  ) : previewUnavailable ? (
+                    <div className="p-4 bg-amber-50 text-amber-800 rounded-xl border border-amber-200 text-xs flex items-center gap-2">
+                      <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
+                      <span>Evidence file is unavailable; please upload it again</span>
                     </div>
                   ) : null}
                 </div>

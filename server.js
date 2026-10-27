@@ -24,11 +24,10 @@ async function startServer() {
     next();
   });
 
-  // Ensure uploads directory exists
-  const uploadsDir = path.join(__dirname, 'uploads');
-  if (!fs.existsSync(uploadsDir)) {
-    fs.mkdirSync(uploadsDir, { recursive: true });
-  }
+  // Ensure persistent uploads directory exists
+  const storageService = require('./backend/services/storageService');
+  storageService.getUploadsDir();
+
   // Evidence Privacy: Block unrestricted static file serving of /uploads.
   // Direct file access is forbidden; evidence must be viewed via authenticated grievance API.
   app.use('/uploads', (req, res) => {
@@ -40,11 +39,13 @@ async function startServer() {
   // Health check routes (both /api/health and /health)
   const healthHandler = (req, res) => {
     const isMongoConnected = require('mongoose').connection.readyState === 1;
+    const storageDiag = storageService.getDiagnostics();
     res.status(200).json({
       status: 'OK',
       message: 'API is running',
       database: isMongoConnected ? 'connected' : 'unavailable',
       storage: isMongoConnected ? 'mongodb' : 'memory',
+      evidenceStorage: storageDiag.provider,
       timestamp: new Date().toISOString()
     });
   };
